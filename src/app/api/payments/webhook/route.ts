@@ -1,22 +1,78 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "../../../../../supabase/server";
+import { SupabaseClient } from "@supabase/supabase-js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
+// Types
+type WebhookEvent = {
+    event_type: string;
+    type: string;
+    stripe_event_id: string;
+    created_at: string;
+    modified_at: string;
+    data: any;
+};
+
+type SubscriptionData = {
+    stripe_id: string;
+    user_id: string;
+    price_id: string;
+    stripe_price_id: string;
+    currency: string;
+    interval: string;
+    status: string;
+    current_period_start: number;
+    current_period_end: number;
+    cancel_at_period_end: boolean;
+    amount: number;
+    started_at: number;
+    customer_id: string;
+    metadata: Record<string, any>;
+};
+
+// Utility functions
+async function logAndStoreWebhookEvent(
+    supabase: SupabaseClient,
+    event: Stripe.Event,
+    data: any
+): Promise<void> {
+    const { error } = await supabase
+        .from("webhook_events")
+        .insert({
+            event_type: event.type,
+            type: event.type.split('.')[0],
+            stripe_event_id: event.id,
+            created_at: new Date(event.created * 1000).toISOString(),
+            modified_at: new Date(event.created * 1000).toISOString(),
+            data
+        } as WebhookEvent);
+
+    if (error) {
+        throw error;
+    }
+}
+
+async function updateSubscriptionStatus(
+    supabase: SupabaseClient,
+    stripeId: string,
+    status: string
+): Promise<void> {
+    const { error } = await supabase
+        .from("subscriptions")
+        .update({ status })
+        .eq("stripe_id", stripeId);
+
+    if (error) {
+        throw error;
+    }
+}
+
+// Main webhook handler
 export async function POST(req: NextRequest) {
-    console.log('🔄 [Webhook] Request received');
-    console.log('📝 [Webhook] Request headers:', {
-        'stripe-signature': req.headers.get("Stripe-Signature"),
-        'content-type': req.headers.get("content-type"),
-        'user-agent': req.headers.get("user-agent")
-    });
-
     const sig = req.headers.get("Stripe-Signature");
-    const body = await req.text();
-
     if (!sig) {
-        console.error('❌ [Webhook] No Stripe signature found in headers');
         return NextResponse.json(
             { error: "No Stripe-Signature header" },
             { status: 400 }
@@ -24,33 +80,16 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-        console.log('🔄 [Webhook] Constructing Stripe event...');
+        const body = await req.text();
         const event = await stripe.webhooks.constructEventAsync(
             body,
             sig,
             process.env.STRIPE_WEBHOOK_SECRET!
         );
-        console.log('✅ [Webhook] Event constructed successfully:', {
-            type: event.type,
-            id: event.id,
-            apiVersion: event.api_version
-        });
 
-        console.log('🔄 [Webhook] Initializing Supabase client...');
         const supabase = await createClient();
-        console.log('✅ [Webhook] Supabase client initialized');
+        await logAndStoreWebhookEvent(supabase, event, event.data.object);
 
-        // Store webhook event
-        console.log('🔄 [Webhook] Storing webhook event...');
-        await storeWebhookEvent(supabase, {
-            type: event.type,
-            stripeEventId: event.id,
-            created: event.created,
-            data: event.data.object
-        });
-
-        // Handle different event types
-        console.log(`🎯 [Webhook] Processing event type: ${event.type}`);
         switch (event.type) {
             case "customer.subscription.created":
                 return await handleSubscriptionCreated(supabase, event);
@@ -65,14 +104,12 @@ export async function POST(req: NextRequest) {
             case "invoice.payment_failed":
                 return await handleInvoicePaymentFailed(supabase, event);
             default:
-                console.log(`⚠️ [Webhook] Unhandled event type: ${event.type}`);
                 return NextResponse.json(
                     { message: `Unhandled event type: ${event.type}` },
                     { status: 200 }
                 );
         }
     } catch (err) {
-        console.error('❌ [Webhook] Error processing webhook:', err);
         return NextResponse.json(
             { error: "Webhook Error" },
             { status: 500 }
@@ -80,78 +117,34 @@ export async function POST(req: NextRequest) {
     }
 }
 
-async function storeWebhookEvent(
-    supabase: any,
-    {
-        type,
-        stripeEventId,
-        created,
-        data
-    }: {
-        type: string;
-        stripeEventId: string;
-        created: number;
-        data: any;
-    }
-) {
-    console.log('🔄 [StoreWebhook] Storing webhook event:', { type, stripeEventId });
-    const { error } = await supabase
-        .from("webhook_events")
-        .insert({
-            event_type: type,
-            type: type.split('.')[0],
-            stripe_event_id: stripeEventId,
-            created_at: new Date(created * 1000).toISOString(),
-            modified_at: new Date(created * 1000).toISOString(),
-            data
-        });
-
-    if (error) {
-        console.error('❌ [StoreWebhook] Error storing webhook event:', error);
-    } else {
-        console.log('✅ [StoreWebhook] Webhook event stored successfully');
-    }
-}
-
-async function handleSubscriptionCreated(supabase: any, event: Stripe.Event) {
-    console.log('🔄 [SubscriptionCreated] Processing subscription creation');
+// Event handlers
+async function handleSubscriptionCreated(supabase: SupabaseClient, event: Stripe.Event) {
     const subscription = event.data.object as Stripe.Subscription;
 
-    console.log('📝 [SubscriptionCreated] Subscription metadata:', subscription.metadata);
-
-    // Try to get user information from Stripe customer
+    // Try to get user information
     let userId = subscription.metadata?.userId;
     if (!userId) {
-        console.log('🔄 [SubscriptionCreated] No userId in metadata, fetching customer...');
         try {
             const customer = await stripe.customers.retrieve(subscription.customer as string);
-            // Try to find user by email
-            const { data: userData, error: userError } = await supabase
+            const { data: userData } = await supabase
                 .from('users')
                 .select('id')
                 .eq('email', (customer as Stripe.Customer).email)
                 .single();
 
-            if (userData) {
-                userId = userData.id;
-                console.log('✅ [SubscriptionCreated] Found user by email:', userData.id);
-            } else {
-                console.error('❌ [SubscriptionCreated] User not found:', userError);
+            userId = userData?.id;
+            if (!userId) {
+                throw new Error('User not found');
             }
         } catch (error) {
-            console.error('❌ [SubscriptionCreated] Error fetching customer:', error);
+            return NextResponse.json(
+                { error: "Unable to find associated user" },
+                { status: 400 }
+            );
         }
     }
 
-    if (!userId) {
-        console.error('❌ [SubscriptionCreated] Unable to find associated user');
-        return NextResponse.json(
-            { error: "Unable to find associated user" },
-            { status: 400 }
-        );
-    }
-
-    const subscriptionData = {
+    const subscriptionData: SubscriptionData = {
         stripe_id: subscription.id,
         user_id: userId,
         price_id: subscription.items.data[0]?.price.id,
@@ -162,25 +155,22 @@ async function handleSubscriptionCreated(supabase: any, event: Stripe.Event) {
         current_period_start: subscription.current_period_start,
         current_period_end: subscription.current_period_end,
         cancel_at_period_end: subscription.cancel_at_period_end,
-        amount: subscription.items.data[0]?.plan.amount,
-        started_at: subscription.start_date,
+        amount: subscription.items.data[0]?.plan.amount ?? 0,
+        started_at: subscription.start_date ?? Math.floor(Date.now() / 1000),
         customer_id: subscription.customer as string,
         metadata: subscription.metadata || {}
     };
 
-    console.log('🔄 [SubscriptionCreated] Inserting subscription into database...');
     const { error } = await supabase
         .from("subscriptions")
         .insert(subscriptionData);
 
     if (error) {
-        console.error('❌ [SubscriptionCreated] Error creating subscription:', error);
         return NextResponse.json(
             { error: "Failed to create subscription" },
             { status: 500 }
         );
     }
-    console.log('✅ [SubscriptionCreated] Subscription inserted successfully');
 
     return NextResponse.json(
         { message: "Subscription created successfully" },
@@ -188,34 +178,26 @@ async function handleSubscriptionCreated(supabase: any, event: Stripe.Event) {
     );
 }
 
-async function handleSubscriptionUpdated(supabase: any, event: Stripe.Event) {
-    console.log('🔄 [SubscriptionUpdated] Processing subscription update');
+async function handleSubscriptionUpdated(supabase: SupabaseClient, event: Stripe.Event) {
     const subscription = event.data.object as Stripe.Subscription;
 
-    const subscriptionData = {
-        status: subscription.status,
-        current_period_start: subscription.current_period_start,
-        current_period_end: subscription.current_period_end,
-        cancel_at_period_end: subscription.cancel_at_period_end,
-        metadata: subscription.metadata
-    };
-
-    console.log('📝 [SubscriptionUpdated] Update data:', subscriptionData);
-
-    console.log('🔄 [SubscriptionUpdated] Updating subscription in database...');
     const { error } = await supabase
         .from("subscriptions")
-        .update(subscriptionData)
+        .update({
+            status: subscription.status,
+            current_period_start: subscription.current_period_start,
+            current_period_end: subscription.current_period_end,
+            cancel_at_period_end: subscription.cancel_at_period_end,
+            metadata: subscription.metadata
+        })
         .eq("stripe_id", subscription.id);
 
     if (error) {
-        console.error('❌ [SubscriptionUpdated] Error updating subscription:', error);
         return NextResponse.json(
             { error: "Failed to update subscription" },
             { status: 500 }
         );
     }
-    console.log('✅ [SubscriptionUpdated] Subscription updated successfully');
 
     return NextResponse.json(
         { message: "Subscription updated successfully" },
@@ -223,206 +205,173 @@ async function handleSubscriptionUpdated(supabase: any, event: Stripe.Event) {
     );
 }
 
-async function handleSubscriptionDeleted(supabase: any, event: Stripe.Event) {
-    console.log('🔄 [SubscriptionDeleted] Processing subscription deletion');
+async function handleSubscriptionDeleted(supabase: SupabaseClient, event: Stripe.Event) {
     const subscription = event.data.object as Stripe.Subscription;
 
-    console.log('📝 [SubscriptionDeleted] Subscription metadata:', subscription.metadata);
     if (!subscription?.metadata?.email) {
-        console.error('❌ [SubscriptionDeleted] No email found in subscription metadata');
         return NextResponse.json(
-            { error: "Customer email could not be fetched" },
-            { status: 500 }
+            { error: "Customer email not found" },
+            { status: 400 }
         );
     }
 
-    console.log('🔄 [SubscriptionDeleted] Updating subscription status to canceled...');
-    const { error } = await supabase
-        .from("subscriptions")
-        .update({ status: "canceled" })
-        .eq("stripe_id", subscription.id);
+    try {
+        await updateSubscriptionStatus(supabase, subscription.id, "canceled");
+        
+        await supabase
+            .from("users")
+            .update({ subscription: null })
+            .eq("email", subscription.metadata.email);
 
-    if (error) {
-        console.error('❌ [SubscriptionDeleted] Error updating subscription:', error);
         return NextResponse.json(
-            { error: "Failed to update subscription" },
+            { message: "Subscription deleted successfully" },
+            { status: 200 }
+        );
+    } catch (error) {
+        return NextResponse.json(
+            { error: "Failed to process subscription deletion" },
             { status: 500 }
         );
     }
-    console.log('✅ [SubscriptionDeleted] Subscription marked as canceled');
-
-    // Remove subscription reference from user
-    console.log('🔄 [SubscriptionDeleted] Removing subscription reference from user...');
-    const { error: userError } = await supabase
-        .from("users")
-        .update({ subscription: null })
-        .eq("email", subscription?.metadata?.email);
-
-    if (userError) {
-        console.error('❌ [SubscriptionDeleted] Error updating user:', userError);
-    } else {
-        console.log('✅ [SubscriptionDeleted] User subscription reference removed');
-    }
-
-    return NextResponse.json(
-        { message: "Subscription deleted successfully" },
-        { status: 200 }
-    );
 }
 
-async function handleCheckoutSessionCompleted(supabase: any, event: Stripe.Event) {
-    console.log('🔄 [CheckoutCompleted] Processing checkout session completion');
+async function handleCheckoutSessionCompleted(supabase: SupabaseClient, event: Stripe.Event) {
     const session = event.data.object as Stripe.Checkout.Session;
-    const metadata = session.metadata;
-
-    console.log('📝 [CheckoutCompleted] Session metadata:', metadata);
-
-    if (session.subscription) {
-        console.log('🔄 [CheckoutCompleted] Updating subscription metadata in Stripe...');
-        // Update subscription metadata in Stripe
-        await stripe.subscriptions.update(
-            session.subscription as string,
-            { metadata }
+    
+    const subscriptionId = typeof session.subscription === 'string' 
+        ? session.subscription 
+        : session.subscription?.id;
+    
+    if (!subscriptionId) {
+        return NextResponse.json(
+            { message: "No subscription in checkout session" },
+            { status: 200 }
         );
-        console.log('✅ [CheckoutCompleted] Stripe subscription metadata updated');
+    }
 
-        // Update subscription in database if needed
-        console.log('🔄 [CheckoutCompleted] Updating subscription in database...');
-        const { error } = await supabase
+    try {
+        await stripe.subscriptions.update(
+            subscriptionId,
+            { 
+                metadata: {
+                    ...session.metadata,
+                    checkoutSessionId: session.id
+                }
+            }
+        );
+
+        await supabase
             .from("subscriptions")
             .update({
-                metadata,
-                user_id: metadata?.userId
+                metadata: {
+                    ...session.metadata,
+                    checkoutSessionId: session.id
+                },
+                user_id: session.metadata?.userId
             })
-            .eq("stripe_id", session.subscription);
+            .eq("stripe_id", subscriptionId);
 
-        if (error) {
-            console.error('❌ [CheckoutCompleted] Error updating subscription:', error);
-            return NextResponse.json(
-                { error: "Failed to update subscription" },
-                { status: 500 }
-            );
-        }
-        console.log('✅ [CheckoutCompleted] Database subscription updated');
-    }
-
-    return NextResponse.json(
-        { message: "Checkout session completed successfully" },
-        { status: 200 }
-    );
-}
-
-async function handleInvoicePaymentSucceeded(supabase: any, event: Stripe.Event) {
-    console.log('🔄 [InvoiceSucceeded] Processing successful invoice payment');
-    const invoice = event.data.object as Stripe.Invoice;
-
-    // fetch the subscription from the subscription table
-    const { data: subscription, error: subscriptionError } = await supabase
-        .from("subscriptions")
-        .select("*")
-        .eq("stripe_id", invoice.subscription);
-
-    if (subscriptionError) {
-        console.error('❌ [InvoiceSucceeded] Error fetching subscription:', subscriptionError);
         return NextResponse.json(
-            { error: "Failed to fetch subscription" },
+            { 
+                message: "Checkout session completed successfully",
+                subscriptionId 
+            },
+            { status: 200 }
+        );
+    } catch (error) {
+        return NextResponse.json(
+            { error: "Failed to process checkout completion" },
             { status: 500 }
         );
     }
+}
 
-    console.log('🔄 [InvoiceSucceeded] Storing invoice in webhook_events...');
-    const { error } = await supabase
-        .from("webhook_events")
-        .insert({
+async function handleInvoicePaymentSucceeded(supabase: SupabaseClient, event: Stripe.Event) {
+    const invoice = event.data.object as Stripe.Invoice;
+    const subscriptionId = typeof invoice.subscription === 'string' 
+        ? invoice.subscription 
+        : invoice.subscription?.id;
+
+    try {
+        const { data: subscription } = await supabase
+            .from("subscriptions")
+            .select("*")
+            .eq("stripe_id", subscriptionId)
+            .single();
+
+        const webhookData = {
             event_type: event.type,
             type: "invoice",
             stripe_event_id: event.id,
             data: {
                 invoiceId: invoice.id,
-                subscriptionId: invoice.subscription,
+                subscriptionId,
                 amountPaid: String(invoice.amount_paid / 100),
                 currency: invoice.currency,
                 status: "succeeded",
                 email: subscription?.email
             }
-        });
+        };
 
-    if (error) {
-        console.error('❌ [InvoiceSucceeded] Error storing invoice:', error);
+        await supabase
+            .from("webhook_events")
+            .insert(webhookData);
+
         return NextResponse.json(
-            { error: "Failed to store invoice" },
+            { message: "Invoice payment succeeded" },
+            { status: 200 }
+        );
+    } catch (error) {
+        return NextResponse.json(
+            { error: "Failed to process successful payment" },
             { status: 500 }
         );
     }
-    console.log('✅ [InvoiceSucceeded] Invoice stored successfully');
-
-    return NextResponse.json(
-        { message: "Invoice payment succeeded" },
-        { status: 200 }
-    );
 }
 
-async function handleInvoicePaymentFailed(supabase: any, event: Stripe.Event) {
-    console.log('🔄 [InvoiceFailed] Processing failed invoice payment');
+async function handleInvoicePaymentFailed(supabase: SupabaseClient, event: Stripe.Event) {
     const invoice = event.data.object as Stripe.Invoice;
+    const subscriptionId = typeof invoice.subscription === 'string' 
+        ? invoice.subscription 
+        : invoice.subscription?.id;
 
-    // fetch the subscription from the subscription table
-    const { data: subscription, error: subscriptionError } = await supabase
-        .from("subscriptions")
-        .select("*")
-        .eq("stripe_id", invoice.subscription);
+    try {
+        const { data: subscription } = await supabase
+            .from("subscriptions")
+            .select("*")
+            .eq("stripe_id", subscriptionId)
+            .single();
 
-    if (subscriptionError) {
-        console.error('❌ [InvoiceSucceeded] Error fetching subscription:', subscriptionError);
-        return NextResponse.json(
-            { error: "Failed to fetch subscription" },
-            { status: 500 }
-        );
-    }
-
-
-    console.log('🔄 [InvoiceFailed] Storing failed invoice in webhook_events...');
-    const { error } = await supabase
-        .from("webhook_events")
-        .insert({
+        const webhookData = {
             event_type: event.type,
             type: "invoice",
             stripe_event_id: event.id,
             data: {
                 invoiceId: invoice.id,
-                subscriptionId: invoice.subscription,
+                subscriptionId,
                 amountDue: String(invoice.amount_due / 100),
                 currency: invoice.currency,
                 status: "failed",
                 email: subscription?.email
             }
-        });
+        };
 
-    if (error) {
-        console.error('❌ [InvoiceFailed] Error storing invoice:', error);
+        await supabase
+            .from("webhook_events")
+            .insert(webhookData);
+
+        if (subscriptionId) {
+            await updateSubscriptionStatus(supabase, subscriptionId, "past_due");
+        }
+
         return NextResponse.json(
-            { error: "Failed to store invoice" },
+            { message: "Invoice payment failed" },
+            { status: 200 }
+        );
+    } catch (error) {
+        return NextResponse.json(
+            { error: "Failed to process failed payment" },
             { status: 500 }
         );
     }
-    console.log('✅ [InvoiceFailed] Failed invoice stored successfully');
-
-    if (invoice.subscription) {
-        console.log('🔄 [InvoiceFailed] Updating subscription status to past_due...');
-        const { error: subError } = await supabase
-            .from("subscriptions")
-            .update({ status: "past_due" })
-            .eq("stripe_id", invoice.subscription);
-
-        if (subError) {
-            console.error('❌ [InvoiceFailed] Error updating subscription:', subError);
-        } else {
-            console.log('✅ [InvoiceFailed] Subscription status updated to past_due');
-        }
-    }
-
-    return NextResponse.json(
-        { message: "Invoice payment failed" },
-        { status: 200 }
-    );
 }
