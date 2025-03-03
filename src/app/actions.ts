@@ -163,22 +163,23 @@ export const signOutAction = async () => {
 
 export const checkoutSessionAction = async ({
   priceId,
-  successUrl,
+  url,
   customerEmail,
   metadata,
 }: {
   priceId: string;
-  successUrl: string;
+  url: string;
   customerEmail?: string;
   metadata?: Record<string, string>;
 }) => {
+
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ["card"],
     line_items: [{ price: priceId, quantity: 1 }],
     metadata: metadata,
     mode: "subscription",
-    success_url: `${process.env.TEMPO_DEV_SERVER_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${process.env.TEMPO_DEV_SERVER_URL}/cancel`,
+    success_url: `${url}/?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${url}/cancel`,
     allow_promotion_codes: true,
     customer_email: customerEmail
   });

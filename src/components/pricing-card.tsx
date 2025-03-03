@@ -23,7 +23,7 @@ export default function PricingCard({ item, user }: {
 
         const session = await checkoutSessionAction({
             priceId: priceId,
-            successUrl: `${process.env.FRONTEND_URL}/success`,
+            url: `${window.location.origin}`,
             customerEmail: user.email!,
             metadata: {
                 userId: user.id,
@@ -59,7 +59,7 @@ export default function PricingCard({ item, user }: {
             <CardFooter className="relative">
                 <Button
                     onClick={async () => {
-                        await handleCheckout(item.id)   
+                        await handleCheckout(item.id)
                     }}
                     className={`w-full py-6 text-lg font-medium`}
                 >
