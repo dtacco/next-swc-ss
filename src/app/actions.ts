@@ -177,8 +177,8 @@ export const checkoutSessionAction = async ({
     line_items: [{ price: priceId, quantity: 1 }],
     metadata: metadata,
     mode: "subscription",
-    success_url: `${process.env.FRONTEND_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${process.env.FRONTEND_URL}/cancel`,
+    success_url: `${process.env.TEMPO_DEV_SERVER_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${process.env.TEMPO_DEV_SERVER_URL}/cancel`,
     allow_promotion_codes: true,
     customer_email: customerEmail
   });
