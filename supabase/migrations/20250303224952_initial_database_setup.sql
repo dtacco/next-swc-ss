@@ -92,6 +92,18 @@ BEGIN
         EXECUTE 'CREATE POLICY "Users can view own subscriptions" ON public.subscriptions
                 FOR SELECT USING (auth.uid()::text = user_id)';
     END IF;
+    
+    -- Check if the policy for webhook_events exists
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies 
+        WHERE schemaname = 'public' 
+        AND tablename = 'webhook_events' 
+        AND policyname = 'Service role can manage webhook events'
+    ) THEN
+        -- Create policy for webhook_events to allow service role access
+        EXECUTE 'CREATE POLICY "Service role can manage webhook events" ON public.webhook_events
+                FOR ALL TO service_role USING (true)';
+    END IF;
 END
 $$;
 
