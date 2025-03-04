@@ -10,33 +10,26 @@ export const createClient = async () => {
     {
       cookies: {
         getAll() {
-          return cookieStore.getAll().map(({ name, value }) => ({
-            name,
-            value,
-          }));
+          try {
+            return cookieStore.getAll().map(({ name, value }) => ({
+              name,
+              value,
+            }));
+          } catch (error) {
+            // If cookies() is called in an environment where it's not allowed
+            console.error("Error accessing cookies:", error);
+            return [];
+          }
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
-          });
-        },
-      },
-    }
-  );
-};
-
-// Create a Supabase client with service role key that bypasses RLS
-export const createServiceClient = async () => {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return [];
-        },
-        setAll() {
-          // No-op for service client
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
+          } catch (error) {
+            // If cookies() is called in an environment where it's not allowed
+            console.error("Error setting cookies:", error);
+          }
         },
       },
     }

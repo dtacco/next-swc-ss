@@ -1,6 +1,5 @@
 "use client";
 
-import { checkoutSessionAction } from "@/app/actions";
 import { User } from "@supabase/supabase-js";
 import { Button } from "./ui/button";
 import {
@@ -10,34 +9,47 @@ import {
     CardHeader,
     CardTitle
 } from "./ui/card";
+import { supabase } from "../../supabase/supabase";
 
 export default function PricingCard({ item, user }: {
     item: any,
     user: User | null
 }) {
+    // Handle checkout process
     const handleCheckout = async (priceId: string) => {
         if (!user) {
-            window.location.href = '/sign-in';
+            // Redirect to login if user is not authenticated
+            window.location.href = "/login?redirect=pricing";
             return;
         }
 
-        const session = await checkoutSessionAction({
-            priceId: priceId,
-            url: `${window.location.origin}`,
-            customerEmail: user.email!,
-            metadata: {
-                userId: user.id,
-                email: user.email!,
-                subscription: 'true'
+
+        try {
+            const { data, error } = await supabase.functions.invoke('create-checkout', {
+                body: {
+                    price_id: priceId,
+                    user_id: user.id,
+                    return_url: `${window.location.origin}/dashboard`,
+                },
+                headers: {
+                    'X-Customer-Email': user.email || '',
+                }
+            });
+
+            if (error) {
+                throw error;
             }
-        })
 
-        if (!session.url) {
-            return;
+            // Redirect to Stripe checkout
+            if (data?.url) {
+                window.location.href = data.url;
+            } else {
+                throw new Error('No checkout URL returned');
+            }
+        } catch (error) {
+            console.error('Error creating checkout session:', error);
         }
-
-        window.location.href = session.url!;
-    }
+    };
 
     return (
         <Card className={`w-[350px] relative overflow-hidden ${item.popular ? 'border-2 border-blue-500 shadow-xl scale-105' : 'border border-gray-200'}`}>

@@ -1,6 +1,5 @@
 "use server";
 
-import { stripe } from "@/lib/stripe";
 import { createClient } from "../../supabase/server";
 import { encodedRedirect } from "@/utils/utils";
 import { headers } from "next/headers";
@@ -158,32 +157,6 @@ export const signOutAction = async () => {
   await supabase.auth.signOut();
   return redirect("/sign-in");
 };
-
-export const checkoutSessionAction = async ({
-  priceId,
-  url,
-  customerEmail,
-  metadata,
-}: {
-  priceId: string;
-  url: string;
-  customerEmail?: string;
-  metadata?: Record<string, string>;
-}) => {
-
-  const session = await stripe.checkout.sessions.create({
-    payment_method_types: ["card"],
-    line_items: [{ price: priceId, quantity: 1 }],
-    metadata: metadata,
-    mode: "subscription",
-    success_url: `${url}/?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${url}/cancel`,
-    allow_promotion_codes: true,
-    customer_email: customerEmail
-  });
-
-  return session;
-}
 
 export const checkUserSubscription = async (userId: string) => {
   const supabase = await createClient();

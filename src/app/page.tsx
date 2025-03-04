@@ -4,15 +4,14 @@ import PricingCard from "@/components/pricing-card";
 import Footer from "@/components/footer";
 import { createClient } from "../../supabase/server";
 import { ArrowUpRight, CheckCircle2, Zap, Shield, Users } from 'lucide-react';
-import { stripe } from "@/lib/stripe";
 
 export default async function Home() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const plans = await stripe.plans.list({
-    active: true,
-  });
+  const { data: plans, error } = await supabase.functions.invoke('get-plans');
+
+  console.log("plans", plans);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-gray-50">
@@ -72,7 +71,7 @@ export default async function Home() {
             <p className="text-gray-600 max-w-2xl mx-auto">Choose the perfect plan for your needs. No hidden fees.</p>
           </div>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            {plans?.data?.map((item) => (
+            {plans?.map((item: any) => (
               <PricingCard key={item.id} item={item} user={user} />
             ))}
           </div>

@@ -1,16 +1,12 @@
 import Navbar from "@/components/navbar";
 import PricingCard from "@/components/pricing-card";
 import { createClient } from "../../../supabase/server";
-import { stripe } from "@/lib/stripe";
 
 export default async function Pricing() {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
-    const result = await stripe.plans.list({
-        active: true,
-    })
-
+    const { data: plans, error } = await supabase.functions.invoke('get-plans');
     return (
         <>
             <Navbar />
@@ -23,7 +19,7 @@ export default async function Pricing() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-7xl mx-auto">
-                    {result?.data?.map((item) => (
+                    {plans?.map((item: any) => (
                         <PricingCard key={item.id} item={item} user={user} />
                     ))}
                 </div>
