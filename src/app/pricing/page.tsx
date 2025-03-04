@@ -6,7 +6,7 @@ export default async function Pricing() {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
-    const { data: plans, error } = await supabase.functions.invoke('get-plans');
+    const { data: plans, error } = await supabase.functions.invoke('supabase-functions-get-plans');
     return (
         <>
             <Navbar />
