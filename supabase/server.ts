@@ -24,3 +24,21 @@ export const createClient = async () => {
     }
   );
 };
+
+// Create a Supabase client with service role key that bypasses RLS
+export const createServiceClient = async () => {
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return [];
+        },
+        setAll() {
+          // No-op for service client
+        },
+      },
+    }
+  );
+};

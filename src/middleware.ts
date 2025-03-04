@@ -30,7 +30,7 @@ export async function middleware(req: NextRequest) {
   const { data: { session }, error } = await supabase.auth.getSession()
 
   if (error) {
-    console.error('Auth session error:', error)
+    // Auth session error handling without console.error
   }
 
   return res

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { createClient } from "../../../../../supabase/server";
+import { createServiceClient } from "../../../../../supabase/server";
 import { SupabaseClient } from "@supabase/supabase-js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
@@ -38,19 +38,33 @@ async function logAndStoreWebhookEvent(
     event: Stripe.Event,
     data: any
 ): Promise<void> {
-    const { error } = await supabase
-        .from("webhook_events")
-        .insert({
+    try {
+        const webhookEvent = {
             event_type: event.type,
             type: event.type.split('.')[0],
             stripe_event_id: event.id,
             created_at: new Date(event.created * 1000).toISOString(),
             modified_at: new Date(event.created * 1000).toISOString(),
             data
-        } as WebhookEvent);
+        } as WebhookEvent;
+                
+        const { error, data: insertedData } = await supabase
+            .from("webhook_events")
+            .insert(webhookEvent)
+            .select();
 
-    if (error) {
-        throw error;
+        if (error) {
+            console.error("Error storing webhook event:", error);
+            console.error("Error details:", JSON.stringify(error, null, 2));
+            throw error;
+        }
+    } catch (err) {
+        console.error("Exception storing webhook event:", err);
+        if (err instanceof Error) {
+            console.error("Error message:", err.message);
+            console.error("Error stack:", err.stack);
+        }
+        throw err;
     }
 }
 
@@ -59,13 +73,25 @@ async function updateSubscriptionStatus(
     stripeId: string,
     status: string
 ): Promise<void> {
-    const { error } = await supabase
-        .from("subscriptions")
-        .update({ status })
-        .eq("stripe_id", stripeId);
+    try {
+        const { error, data } = await supabase
+            .from("subscriptions")
+            .update({ status })
+            .eq("stripe_id", stripeId)
+            .select();
 
-    if (error) {
-        throw error;
+        if (error) {
+            console.error("Error updating subscription status:", error);
+            console.error("Error details:", JSON.stringify(error, null, 2));
+            throw error;
+        }
+    } catch (err) {
+        console.error("Exception updating subscription status:", err);
+        if (err instanceof Error) {
+            console.error("Error message:", err.message);
+            console.error("Error stack:", err.stack);
+        }
+        throw err;
     }
 }
 
@@ -73,6 +99,7 @@ async function updateSubscriptionStatus(
 export async function POST(req: NextRequest) {
     const sig = req.headers.get("Stripe-Signature");
     if (!sig) {
+        console.error("No Stripe-Signature header provided");
         return NextResponse.json(
             { error: "No Stripe-Signature header" },
             { status: 400 }
@@ -81,13 +108,14 @@ export async function POST(req: NextRequest) {
 
     try {
         const body = await req.text();
+        
         const event = await stripe.webhooks.constructEventAsync(
             body,
             sig,
             process.env.STRIPE_WEBHOOK_SECRET!
         );
-
-        const supabase = await createClient();
+        const supabase = await createServiceClient();
+        
         await logAndStoreWebhookEvent(supabase, event, event.data.object);
 
         switch (event.type) {
@@ -110,6 +138,11 @@ export async function POST(req: NextRequest) {
                 );
         }
     } catch (err) {
+        console.error("Webhook Error:", err);
+        if (err instanceof Error) {
+            console.error("Error message:", err.message);
+            console.error("Error stack:", err.stack);
+        }
         return NextResponse.json(
             { error: "Webhook Error" },
             { status: 500 }
@@ -123,20 +156,34 @@ async function handleSubscriptionCreated(supabase: SupabaseClient, event: Stripe
 
     // Try to get user information
     let userId = subscription.metadata?.userId;
+    
     if (!userId) {
         try {
             const customer = await stripe.customers.retrieve(subscription.customer as string);
-            const { data: userData } = await supabase
+            
+            const { data: userData, error: userError } = await supabase
                 .from('users')
                 .select('id')
                 .eq('email', (customer as Stripe.Customer).email)
                 .single();
 
+            if (userError) {
+                console.error("Error finding user:", userError);
+                console.error("Error details:", JSON.stringify(userError, null, 2));
+            }
+
             userId = userData?.id;
+            
             if (!userId) {
+                console.error("User not found in database");
                 throw new Error('User not found');
             }
         } catch (error) {
+            console.error("Error retrieving user:", error);
+            if (error instanceof Error) {
+                console.error("Error message:", error.message);
+                console.error("Error stack:", error.stack);
+            }
             return NextResponse.json(
                 { error: "Unable to find associated user" },
                 { status: 400 }
@@ -161,11 +208,14 @@ async function handleSubscriptionCreated(supabase: SupabaseClient, event: Stripe
         metadata: subscription.metadata || {}
     };
 
-    const { error } = await supabase
+    const { error, data: insertedData } = await supabase
         .from("subscriptions")
-        .insert(subscriptionData);
+        .insert(subscriptionData)
+        .select();
 
     if (error) {
+        console.error("Error creating subscription:", error);
+        console.error("Error details:", JSON.stringify(error, null, 2));
         return NextResponse.json(
             { error: "Failed to create subscription" },
             { status: 500 }
@@ -181,7 +231,7 @@ async function handleSubscriptionCreated(supabase: SupabaseClient, event: Stripe
 async function handleSubscriptionUpdated(supabase: SupabaseClient, event: Stripe.Event) {
     const subscription = event.data.object as Stripe.Subscription;
 
-    const { error } = await supabase
+    const { error, data: updatedData } = await supabase
         .from("subscriptions")
         .update({
             status: subscription.status,
@@ -190,15 +240,17 @@ async function handleSubscriptionUpdated(supabase: SupabaseClient, event: Stripe
             cancel_at_period_end: subscription.cancel_at_period_end,
             metadata: subscription.metadata
         })
-        .eq("stripe_id", subscription.id);
+        .eq("stripe_id", subscription.id)
+        .select();
 
     if (error) {
+        console.error("Error updating subscription:", error);
+        console.error("Error details:", JSON.stringify(error, null, 2));
         return NextResponse.json(
             { error: "Failed to update subscription" },
             { status: 500 }
         );
     }
-
     return NextResponse.json(
         { message: "Subscription updated successfully" },
         { status: 200 }

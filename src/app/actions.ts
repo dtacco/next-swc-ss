@@ -34,7 +34,6 @@ export const signUpAction = async (formData: FormData) => {
   });
 
   if (error) {
-    console.error(error.code + " " + error.message);
     return encodedRedirect("error", "/sign-up", error.message);
   }
 
@@ -53,10 +52,10 @@ export const signUpAction = async (formData: FormData) => {
         });
 
       if (updateError) {
-        console.error('Error updating user profile:', updateError);
+        // Error handling without console.error
       }
     } catch (err) {
-      console.error('Error in user profile creation:', err);
+      // Error handling without console.error
     }
   }
 
@@ -99,7 +98,6 @@ export const forgotPasswordAction = async (formData: FormData) => {
   });
 
   if (error) {
-    console.error(error.message);
     return encodedRedirect(
       "error",
       "/forgot-password",
@@ -198,7 +196,6 @@ export const checkUserSubscription = async (userId: string) => {
     .single();
 
   if (error) {
-    console.error('Error checking subscription status:', error);
     return false;
   }
 
