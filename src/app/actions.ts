@@ -1,9 +1,8 @@
 "use server";
 
-import { createClient } from "../../supabase/server";
 import { encodedRedirect } from "@/utils/utils";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { createClient } from "../../supabase/server";
 
 export const signUpAction = async (formData: FormData) => {
   const email = formData.get("email")?.toString();
@@ -50,9 +49,19 @@ export const signUpAction = async (formData: FormData) => {
 
       if (updateError) {
         // Error handling without console.error
+        return encodedRedirect(
+          "error",
+          "/sign-up",
+          "Error updating user. Please try again.",
+        );
       }
     } catch (err) {
       // Error handling without console.error
+      return encodedRedirect(
+        "error",
+        "/sign-up",
+        "Error updating user. Please try again.",
+      );
     }
   }
 

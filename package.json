@@ -3,8 +3,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
-    "deploy-webhook": "supabase functions deploy payments-webhook --no-verify-jwt"
+    "start": "next start"
   },
   "dependencies": {
     "@polar-sh/sdk": "^0.26.1",
