@@ -1,8 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-// @ts-ignore - Deno imports
 import Stripe from "https://esm.sh/stripe@13.6.0?target=deno";
-// @ts-ignore - Deno imports
-import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 // Types
 type WebhookEvent = {
@@ -33,7 +31,6 @@ type SubscriptionData = {
   ended_at?: number;
 };
 
-// @ts-ignore - Deno is available in the Supabase Edge Functions environment
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') || '', {
   apiVersion: '2023-10-16',
   httpClient: Stripe.createFetchHttpClient(),
@@ -41,13 +38,12 @@ const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') || '', {
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, stripe-signature',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
 // Utility functions
 async function logAndStoreWebhookEvent(
-  supabaseClient: SupabaseClient,
+  supabaseClient: any,
   event: any,
   data: any
 ): Promise<void> {
@@ -69,7 +65,7 @@ async function logAndStoreWebhookEvent(
 }
 
 async function updateSubscriptionStatus(
-  supabaseClient: SupabaseClient,
+  supabaseClient: any,
   stripeId: string,
   status: string
 ): Promise<void> {
@@ -85,7 +81,7 @@ async function updateSubscriptionStatus(
 }
 
 // Event handlers
-async function handleSubscriptionCreated(supabaseClient: SupabaseClient, event: any) {
+async function handleSubscriptionCreated(supabaseClient: any, event: any) {
   const subscription = event.data.object;
   console.log('Handling subscription created:', subscription.id);
 
@@ -174,7 +170,7 @@ async function handleSubscriptionCreated(supabaseClient: SupabaseClient, event: 
   );
 }
 
-async function handleSubscriptionUpdated(supabaseClient: SupabaseClient, event: any) {
+async function handleSubscriptionUpdated(supabaseClient: any, event: any) {
   const subscription = event.data.object;
   console.log('Handling subscription updated:', subscription.id);
 
@@ -211,7 +207,7 @@ async function handleSubscriptionUpdated(supabaseClient: SupabaseClient, event: 
   );
 }
 
-async function handleSubscriptionDeleted(supabaseClient: SupabaseClient, event: any) {
+async function handleSubscriptionDeleted(supabaseClient: any, event: any) {
   const subscription = event.data.object;
   console.log('Handling subscription deleted:', subscription.id);
 
@@ -245,7 +241,7 @@ async function handleSubscriptionDeleted(supabaseClient: SupabaseClient, event: 
   }
 }
 
-async function handleCheckoutSessionCompleted(supabaseClient: SupabaseClient, event: any) {
+async function handleCheckoutSessionCompleted(supabaseClient: any, event: any) {
   const session = event.data.object;
   console.log('Handling checkout session completed:', session.id);
   console.log('Full session data:', JSON.stringify(session, null, 2));
@@ -327,7 +323,7 @@ async function handleCheckoutSessionCompleted(supabaseClient: SupabaseClient, ev
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       }
     );
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error processing checkout completion:', error);
     console.error('Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     console.error('Error stack:', error.stack);
@@ -341,7 +337,7 @@ async function handleCheckoutSessionCompleted(supabaseClient: SupabaseClient, ev
   }
 }
 
-async function handleInvoicePaymentSucceeded(supabaseClient: SupabaseClient, event: any) {
+async function handleInvoicePaymentSucceeded(supabaseClient: any, event: any) {
   const invoice = event.data.object;
   console.log('Handling invoice payment succeeded:', invoice.id);
   
@@ -393,7 +389,7 @@ async function handleInvoicePaymentSucceeded(supabaseClient: SupabaseClient, eve
   }
 }
 
-async function handleInvoicePaymentFailed(supabaseClient: SupabaseClient, event: any) {
+async function handleInvoicePaymentFailed(supabaseClient: any, event: any) {
   const invoice = event.data.object;
   console.log('Handling invoice payment failed:', invoice.id);
   
@@ -450,49 +446,29 @@ async function handleInvoicePaymentFailed(supabaseClient: SupabaseClient, event:
 }
 
 // Main webhook handler
-serve(async (req: Request) => {
-  console.log('Received webhook request');
-  console.log('Method:', req.method);
-  
-  // Log headers in a way that works with the current TypeScript configuration
-  const headersObj: Record<string, string> = {};
-  req.headers.forEach((value, key) => {
-    headersObj[key] = value;
-  });
-  console.log('Headers:', JSON.stringify(headersObj, null, 2));
-  
-  // Handle CORS preflight requests
+serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    console.log('Handling OPTIONS request');
-    return new Response(null, { 
-      status: 204,
-      headers: corsHeaders 
-    });
+    return new Response(null, { headers: corsHeaders });
   }
 
   try {
     const signature = req.headers.get('stripe-signature');
-    console.log('Stripe signature:', signature);
     
     if (!signature) {
-      console.error('No Stripe signature found in headers');
+      console.log("IT DIDN'T WORK")
       return new Response(
         JSON.stringify({ error: "No signature found" }),
         { 
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         }
-      );
+      );      
     }
 
     const body = await req.text();
-    console.log('Request body:', body);
-    
-    // @ts-ignore - Deno is available in the Supabase Edge Functions environment
     const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET');
     
     if (!webhookSecret) {
-      console.error('Webhook secret not configured in environment variables');
       return new Response(
         JSON.stringify({ error: "Webhook secret not configured" }),
         { 
@@ -505,13 +481,11 @@ serve(async (req: Request) => {
     let event;
     
     try {
-      console.log('Attempting to verify Stripe signature');
       event = await stripe.webhooks.constructEventAsync(
         body,
         signature,
         webhookSecret
       );
-      console.log('Stripe signature verified successfully');
     } catch (err) {
       console.error('Error verifying webhook signature:', err);
       return new Response(
@@ -525,28 +499,11 @@ serve(async (req: Request) => {
 
     console.log('Processing webhook event:', event.type);
 
-    // Create Supabase client with service role key to bypass RLS
-    // @ts-ignore - Deno is available in the Supabase Edge Functions environment
-    const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    // @ts-ignore - Deno is available in the Supabase Edge Functions environment
-    const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    
-    if (!supabaseUrl || !supabaseServiceRoleKey) {
-      console.error('Missing Supabase credentials:', { 
-        hasUrl: !!supabaseUrl, 
-        hasServiceKey: !!supabaseServiceRoleKey 
-      });
-      return new Response(
-        JSON.stringify({ error: "Supabase credentials not configured properly" }),
-        { 
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
-    }
-    
-    console.log('Creating Supabase client with service role key to bypass RLS');
-    const supabaseClient = createClient(supabaseUrl, supabaseServiceRoleKey);
+    // Create Supabase client
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    );
 
     // Log the webhook event
     await logAndStoreWebhookEvent(supabaseClient, event, event.data.object);
@@ -575,9 +532,8 @@ serve(async (req: Request) => {
           }
         );
     }
-  } catch (err: any) {
+  } catch (err) {
     console.error('Error processing webhook:', err);
-    console.error('Error stack:', err.stack);
     return new Response(
       JSON.stringify({ error: err.message }),
       { 
