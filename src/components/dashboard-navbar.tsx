@@ -76,7 +76,7 @@ export default function DashboardNavbar() {
           </Link>
           <div className="hidden md:flex gap-6 ml-10">
             <Link
-              href="/dashboard"
+              href="/dashboard/page.tsx"
               className="text-sm font-medium text-gray-700 hover:text-gray-900 flex items-center gap-1"
             >
               <Home className="h-4 w-4" />
