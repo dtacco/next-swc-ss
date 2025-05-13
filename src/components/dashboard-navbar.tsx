@@ -71,7 +71,7 @@ export default function DashboardNavbar() {
     <nav className="w-full border-b border-gray-200 bg-white py-4">
       <div className="container mx-auto px-4 flex justify-between items-center">
         <div className="flex items-center gap-4">
-          <Link href="/" prefetch className="text-xl font-bold">
+          <Link href="/dashboard" prefetch className="text-xl font-bold">
             FinTrack
           </Link>
           <div className="hidden md:flex gap-6 ml-10">

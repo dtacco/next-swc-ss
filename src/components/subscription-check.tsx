@@ -9,7 +9,7 @@ interface SubscriptionCheckProps {
 
 export async function SubscriptionCheck({
     children,
-    redirectTo = '/dashboard'
+    redirectTo = '/pricing'
 }: SubscriptionCheckProps) {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
