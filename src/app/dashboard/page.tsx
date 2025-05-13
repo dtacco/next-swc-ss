@@ -64,6 +64,14 @@ const NetWorthChart = dynamic(
   },
 );
 
+const InitializeData = dynamic(
+  () => import("@/components/dashboard/initialize-data"),
+  {
+    ssr: false,
+    loading: () => <div className="h-24 bg-card rounded-xl animate-pulse" />,
+  },
+);
+
 export default async function Dashboard() {
   const supabase = await createClient();
 
@@ -88,6 +96,9 @@ export default async function Dashboard() {
               <span>Welcome to your personal finance dashboard</span>
             </div>
           </header>
+
+          {/* Initialize Data Section */}
+          <InitializeData />
 
           {/* Quick Actions */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
